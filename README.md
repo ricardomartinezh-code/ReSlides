@@ -1,101 +1,40 @@
-# Presentación: Percepción de utilidad y frecuencia de uso de IA en Psicología
+# ReSlides Web App
 
-## 📋 Descripción
+**ReSlides** es una aplicación web sencilla que convierte un guion de diapositivas en una presentación HTML completamente estilizada, utilizando la plantilla profesional analizada en este proyecto. Permite generar páginas de gráficas interactivas y empaquetar todo en un archivo ZIP listo para descargar.
 
-Esta es una presentación académica profesional sobre la percepción de utilidad y frecuencia de uso de herramientas de inteligencia artificial en estudiantes de Psicología.
+## Estructura del proyecto
 
-## 📁 Archivos incluidos
+- `index.html` — Página principal con la interfaz de chat donde escribes tu guion y recibes la presentación.
+- `script.js` — Lógica de cliente que analiza el guion, genera la presentación y gráficas, empaqueta los archivos en un ZIP y actualiza la interfaz.
+- `README.md` — Este archivo.
 
-### Presentación principal
-- `presentacion_ia_psicologia.html` - Presentación completa con 14 diapositivas
+## Cómo usar
 
-### Gráficos interactivos
-- `resultados_descriptivos.html` - Gráfico de barras con medias de las tres variables
-- `correlacion.html` - Diagrama de dispersión con línea de tendencia
-- `patrones_uso.html` - Gráfico de barras con actividades más frecuentes
+1. Abre `index.html` en tu navegador.
+2. Escribe tu guion en el área de texto siguiendo el formato de ejemplo. Cada diapositiva empieza con `Diapositiva N`. Utiliza `Título:`, `Contenido:` y `Datos:` para definir el título, texto y datos de gráficas respectivamente. Separa los puntos de `Contenido` con punto y coma `;`. Para los datos de gráficas usa `Labels:` y `Valores:` separados por punto y coma.
+3. Pulsa **Enviar**. La aplicación procesará el guion y generará una carpeta virtual con los siguientes archivos:
+   - `presentacion.html` — La presentación principal con tus diapositivas y miniaturas de gráficas personalizables.
+   - `grafica*.html` — Una página HTML por cada gráfica incluida en tu guion.
+   - `readme.md` — Instrucciones de uso básicas generadas automáticamente.
+4. Descarga el archivo ZIP y ábrelo. Extrae el contenido y abre `presentacion.html` para ver tu presentación. Puedes mover, eliminar o duplicar las vistas previas de las gráficas dentro de la propia presentación.
 
-## 🎨 Características de diseño
+## Funcionalidades de vistas previas
 
-- **Diseño editorial profesional** inspirado en revistas científicas
-- **Paleta de colores**:
-  - Azul marino (#1B365D) - color principal
-  - Dorado (#D4AF37) - acentos y énfasis
-  - Grises neutros para texto
-- **Tipografía**:
-  - Títulos: Sorts Mill Goudy (serif elegante)
-  - Cuerpo: Oranienbaum (serif legible)
-- **Layout** de 992×558 píxeles por diapositiva
+En las diapositivas que contienen una gráfica, la columna derecha muestra una o más miniaturas de la página de la gráfica. Puedes:
 
-## 📊 Estructura de la presentación
+- **Añadir más vistas previas** con el botón “Añadir vista previa”.
+- **Eliminar** una vista previa haciendo clic en la `×` roja de la esquina.
+- **Arrastrar y soltar** las miniaturas para reordenarlas.
 
-1. **Portada** - Título, autor e institución
-2. **Contexto y problema** - Planteamiento del estudio
-3. **Preguntas de investigación** - Las 4 preguntas centrales
-4. **Objetivos e hipótesis** - Marco teórico y expectativas
-5. **Marco teórico** - IA en educación, modelos de adopción y riesgos
-6. **Método** - Enfoque cuantitativo, tipo y diseño
-7. **Participantes e instrumento** - Muestra y cuestionario
-8. **Resultados descriptivos globales** - Medias y desviaciones
-9. **Patrones de uso** - Actividades más frecuentes
-10. **Utilidad percibida** - ¿La IA ayuda a aprender?
-11. **Riesgos percibidos** - Preocupaciones éticas y académicas
-12. **Correlación** - Relación entre utilidad y uso
-13. **Discusión** - Integración de hallazgos
-14. **Limitaciones y conclusiones** - Futuras líneas y agradecimientos
+## Despliegue en Vercel
 
-## 🚀 Cómo usar
+Este proyecto es estático y está listo para desplegarse en [Vercel](https://vercel.com/). Para desplegarlo:
 
-### Opción 1: Abrir directamente
-1. Abre el archivo `presentacion_ia_psicologia.html` en tu navegador
-2. Navega con la barra de desplazamiento
-3. Los gráficos están vinculados como referencias
-
-### Opción 2: Integrar gráficos
-1. Abre cada archivo de gráfico (.html) en una pestaña separada
-2. Captura las pantallas para insertarlas en tus diapositivas
-3. Alternativamente, usa los datos para recrear los gráficos en tu software preferido
-
-## 📈 Datos incluidos
-
-### Resultados descriptivos
-- Frecuencia de uso: M = 15.79 (DE = 4.05)
-- Utilidad percibida: M = 20.00 (DE = 4.15)
-- Riesgo percibido: M = 16.11 (DE = 2.96)
-
-### Correlación
-- r = 0.499, p = 0.030 (significativa)
-
-### Patrones de uso (porcentajes aproximados)
-- Aclarar dudas teóricas: 85%
-- Obtener ejemplos o casos: 78%
-- Preparar presentaciones: 72%
-- Redactar trabajos: 65%
-
-## 📝 Notas importantes
-
-- Los gráficos están diseñados para ser **interactivos** en HTML
-- Las diapositivas mantienen proporción **16:9** (992×558px)
-- El diseño es **responsive** pero optimizado para presentación
-- Los colores siguen estándares de **accesibilidad** (contraste WCAG)
-
-## 🎯 Personalización
-
-Para adaptar la presentación a tus necesidades:
-
-1. **Cambiar colores**: Modifica las variables CSS en el `<style>`
-2. **Agregar datos**: Actualiza los valores en los gráficos Plotly
-3. **Modificar texto**: Edita directamente el contenido HTML
-4. **Nuevas secciones**: Duplica y adapta la estructura existente
-
-## 📚 Referencias de diseño
-
-Inspirado en revistas científicas como:
-- Nature
-- Scientific American
-- The New Yorker
-- Kinfolk
+1. Sube la carpeta `reslides_app` a un repositorio en GitHub u otra plataforma de control de versiones.
+2. Ve a Vercel y crea un nuevo proyecto enlazando tu repositorio.
+3. Vercel detectará automáticamente que se trata de un sitio estático y lo desplegará.
+4. Una vez desplegado, podrás acceder a tu instancia de **ReSlides** desde cualquier navegador.
 
 ---
 
-**Creado con**: HTML5, Tailwind CSS, Plotly.js, Font Awesome
-**Fecha**: 2025
+Esta app se creó como ejemplo práctico para ilustrar cómo generalizar y reutilizar la plantilla de la presentación original de IA en Psicología, adaptándola a un generador flexible y autosuficiente.
