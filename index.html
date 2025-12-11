@@ -12,11 +12,10 @@
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.0.0/css/all.min.css" rel="stylesheet" />
   <!-- JSZip for zipping files in browser -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <!-- FileSaver for saving generated zip -->
+  <!-- FileSaver (no imprescindible, pero útil si se quiere usar saveAs) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-  <!-- PptxGenJS for generating PPTX files -->
-  <!-- Se utiliza una versión de la biblioteca compatible con navegadores -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.4.0/pptxgen.bundle.js"></script>
+  <!-- PptxGenJS para generar PPTX en el navegador -->
+  <script src="https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs/dist/pptxgen.bundle.js"></script>
   <style>
     body {
       font-family: 'Oranienbaum', serif;
@@ -30,59 +29,162 @@
 <body class="min-h-screen flex flex-col">
   <!-- Header -->
   <header class="bg-[#1B365D] text-white py-4 shadow-md">
-    <div class="max-w-4xl mx-auto px-4 flex items-center">
-      <i class="fas fa-chalkboard-teacher text-3xl mr-3"></i>
-      <h1 class="text-2xl font-bold">ReSlides</h1>
+    <div class="max-w-5xl mx-auto px-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <i class="fas fa-chalkboard-teacher text-3xl"></i>
+        <div>
+          <h1 class="text-2xl font-bold leading-tight">ReSlides</h1>
+          <p class="text-sm opacity-80">Generador de presentaciones HTML · Gráficas · PPTX</p>
+        </div>
+      </div>
+      <span class="text-xs uppercase tracking-wide bg-[#D4AF37] text-[#1B365D] px-3 py-1 rounded-full">
+        Beta
+      </span>
     </div>
   </header>
+
   <!-- Main content -->
-  <main class="flex-1 max-w-4xl mx-auto px-4 mt-6 mb-12">
-    <!-- Conversation history -->
-    <section id="history" class="mb-4 space-y-4"></section>
-    <!-- Input form -->
-    <form id="chat-form" class="bg-white rounded-lg shadow-md p-4 flex flex-col space-y-3">
-      <label for="script-input" class="font-semibold text-[#1B365D]">Escribe tu guion de presentación</label>
-      <textarea id="script-input" class="border rounded p-2 h-32 resize-y" placeholder="Ejemplo:\nDiapositiva 1\nTítulo: Introducción\nContenido: Punto 1; Punto 2; Punto 3\n\nDiapositiva 2\nTítulo: Gráfico de uso\nDatos: Labels: Resúmenes, Ideas, Redacción; Valores: 4.2, 3.8, 2.5\nDescripción: Frecuencia de uso"></textarea>
-      <!-- Opciones de personalización -->
-      <div class="flex flex-wrap gap-4">
-        <label class="flex flex-col text-sm text-[#1B365D] w-40">
-          Tema de color
-          <select id="theme-select" class="border rounded p-1 mt-1">
-            <option value="default" selected>Azul y dorado</option>
-            <option value="purpura">Púrpura</option>
-            <option value="verde">Verde</option>
-          </select>
+  <main class="flex-1 max-w-5xl mx-auto px-4 mt-6 mb-10 grid md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-6">
+    <!-- Left column: chat + options + history -->
+    <section class="space-y-4">
+      <!-- Conversation history -->
+      <div id="history" class="space-y-3"></div>
+
+      <!-- Input form -->
+      <form id="chat-form" class="bg-white rounded-2xl shadow-md p-4 md:p-5 flex flex-col space-y-3 border border-slate-100">
+        <label for="script-input" class="font-semibold text-[#1B365D] text-sm flex items-center gap-2">
+          <i class="fas fa-comments text-[#D4AF37]"></i>
+          Guion de la presentación
         </label>
-        <label class="flex flex-col text-sm text-[#1B365D] w-40">
-          Tipografía
-          <select id="font-select" class="border rounded p-1 mt-1">
-            <option value="default" selected>Clásica</option>
-            <option value="moderna">Moderna</option>
-          </select>
-        </label>
+        <textarea
+          id="script-input"
+          class="border rounded-lg p-3 h-44 text-sm font-mono bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#D4AF37]"
+          placeholder="Ejemplo:
+Diapositiva 1
+Título: Uso de IA en estudiantes universitarios
+Contenido: Los estudiantes usan IA para estudiar; Se observan patrones de uso moderado
+
+Diapositiva 2
+Título: Frecuencia de uso
+Contenido: La mayoría reporta uso frecuente para resúmenes
+Datos: Labels: Resúmenes, Ideas, Redacción; Valores: 4.2, 3.8, 2.5
+Descripción: Frecuencia de uso por actividad"
+        ></textarea>
+
+        <!-- Opciones de personalización -->
+        <div class="flex flex-wrap gap-4 text-sm">
+          <label class="flex flex-col text-[#1B365D] w-40">
+            Tema de color
+            <select id="theme-select" class="border rounded-lg p-1.5 mt-1 bg-slate-50">
+              <option value="default" selected>Azul y dorado</option>
+              <option value="purpura">Púrpura</option>
+              <option value="verde">Verde</option>
+            </select>
+          </label>
+          <label class="flex flex-col text-[#1B365D] w-40">
+            Tipografía
+            <select id="font-select" class="border rounded-lg p-1.5 mt-1 bg-slate-50">
+              <option value="default" selected>Clásica</option>
+              <option value="moderna">Moderna</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="flex flex-wrap gap-3 pt-1">
+          <button
+            type="submit"
+            class="inline-flex items-center justify-center gap-2 bg-[#1B365D] text-white text-sm font-semibold px-4 py-2 rounded-full shadow hover:bg-[#152748] transition-colors"
+          >
+            <i class="fas fa-magic"></i>
+            Generar presentación
+          </button>
+          <button
+            type="button"
+            id="clear-btn"
+            class="inline-flex items-center justify-center gap-2 text-xs text-slate-600 px-3 py-1.5 rounded-full border border-slate-300 hover:bg-slate-50"
+          >
+            Limpiar historial
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Right column: preview + descargas -->
+    <section class="space-y-4">
+      <!-- Vista previa -->
+      <div id="preview-section" class="bg-white rounded-2xl shadow-md border border-slate-100 p-4 md:p-5 hidden">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h2 class="text-sm font-semibold text-[#1B365D] flex items-center gap-2">
+              <i class="fas fa-eye"></i>
+              Vista previa de la presentación
+            </h2>
+            <p class="text-xs text-slate-500">
+              La vista previa usa el mismo HTML que podrás descargar.
+            </p>
+          </div>
+          <a
+            id="open-new-tab-link"
+            href="#"
+            target="_blank"
+            class="text-xs text-[#1B365D] underline hover:text-[#D4AF37] hidden"
+          >
+            Abrir en pestaña nueva
+          </a>
+        </div>
+        <div class="border rounded-xl overflow-hidden bg-slate-100 h-[420px]">
+          <iframe
+            id="preview-frame"
+            class="w-full h-full border-0 bg-slate-200"
+            title="Vista previa de la presentación"
+          ></iframe>
+        </div>
       </div>
-      <div class="flex items-center space-x-4">
-        <label class="flex items-center space-x-2 cursor-pointer">
-          <i class="fas fa-paperclip text-[#1B365D]"></i>
-          <span class="text-sm text-[#1B365D]">Adjuntar archivo (opcional)</span>
-          <input type="file" id="file-input" class="hidden" multiple />
-        </label>
-        <button type="submit" class="ml-auto bg-[#1B365D] hover:bg-[#2C5F7F] text-white px-4 py-2 rounded-lg flex items-center space-x-2">
-          <i class="fas fa-paper-plane"></i>
-          <span>Enviar</span>
-        </button>
+
+      <!-- Descargas -->
+      <div id="downloads-section" class="bg-white rounded-2xl shadow-md border border-slate-100 p-4 md:p-5 hidden">
+        <h2 class="text-sm font-semibold text-[#1B365D] mb-2 flex items-center gap-2">
+          <i class="fas fa-download"></i>
+          Descargas
+        </h2>
+        <p class="text-xs text-slate-500 mb-3">
+          Usa estos botones para guardar la presentación en tu equipo.
+        </p>
+        <div class="flex flex-wrap gap-3">
+          <a
+            id="download-html"
+            href="#"
+            class="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full border border-slate-300 text-[#1B365D] hover:bg-slate-50 cursor-pointer"
+          >
+            <i class="fas fa-file-code"></i>
+            Descargar HTML
+          </a>
+          <button
+            id="download-pptx"
+            type="button"
+            class="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full border border-slate-300 text-[#1B365D] hover:bg-slate-50"
+          >
+            <i class="fas fa-file-powerpoint"></i>
+            Descargar PPTX
+          </button>
+          <button
+            id="download-zip"
+            type="button"
+            class="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full border border-slate-300 text-[#1B365D] hover:bg-slate-50"
+          >
+            <i class="fas fa-file-archive"></i>
+            Descargar ZIP (HTML + gráficas)
+          </button>
+        </div>
       </div>
-    </form>
-    <!-- Generated files list -->
-    <section id="files" class="mt-8 hidden">
-      <h2 class="text-xl font-bold text-[#1B365D] mb-3">Archivos generados</h2>
-      <ul id="files-list" class="space-y-2"></ul>
     </section>
   </main>
+
   <!-- Footer -->
-  <footer class="bg-gray-200 text-center py-4 text-sm text-gray-500 mt-auto">
-    Creado con ReSlides — despliegue preparado para Vercel
+  <footer class="bg-gray-200 text-center py-4 text-xs text-gray-500 mt-auto">
+    Creado con ReSlides — listo para desplegar en Vercel
   </footer>
+
   <!-- App script -->
   <script src="./script.js"></script>
 </body>

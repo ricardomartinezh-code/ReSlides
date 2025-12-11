@@ -1,307 +1,725 @@
 /*
- * ReSlides front-end script
+ * ReSlides front-end script (versión app web)
  *
- * This file handles parsing a user-provided script, generating a complete
- * presentation in HTML using a predefined template, creating separate
- * HTML files for each graph slide, packaging them into a zip archive
- * and offering download links. It also updates the conversation history
- * on the page so the user can see their submission and the response.
+ * Esta versión:
+ *  - Analiza un guion de texto y lo convierte en un arreglo de diapositivas.
+ *  - Genera una presentación HTML con estilo similar a la plantilla original.
+ *  - Genera páginas HTML para las gráficas (grafica1.html, grafica2.html, ...).
+ *  - Permite vista previa de la presentación dentro del sitio y abrirla en otra pestaña.
+ *  - Ofrece descargas en HTML, PPTX (usando PptxGenJS) y ZIP (HTML + gráficas + README).
  */
 
-// Utility to create DOM elements with classes and text
-function createElement(tag, className, text) {
-  const el = document.createElement(tag);
-  if (className) el.className = className;
-  if (text) el.textContent = text;
-  return el;
+/* ===========================
+   Configuración de temas y fuentes
+   =========================== */
+
+const THEMES = {
+  default: {
+    name: 'Azul y dorado',
+    primary: '#1B365D',
+    secondary: '#2C5282',
+    accent: '#D4AF37',
+    background: '#F7FAFC',
+    text: '#1A202C',
+  },
+  purpura: {
+    name: 'Púrpura',
+    primary: '#4C1D95',
+    secondary: '#6D28D9',
+    accent: '#FBBF24',
+    background: '#F5F3FF',
+    text: '#111827',
+  },
+  verde: {
+    name: 'Verde',
+    primary: '#166534',
+    secondary: '#047857',
+    accent: '#F59E0B',
+    background: '#ECFDF5',
+    text: '#064E3B',
+  },
+};
+
+const FONTS = {
+  default: {
+    heading: "'Sorts Mill Goudy', serif",
+    body: "'Oranienbaum', serif",
+  },
+  moderna: {
+    heading: "'Coda', sans-serif",
+    body: "'Unna', serif",
+  },
+};
+
+// Utilidad: convertir color #RRGGBB a formato usado típicamente por PptxGenJS ("RRGGBB")
+function toPptxColor(hex) {
+  if (!hex) return '000000';
+  return hex.replace('#', '').toUpperCase();
 }
 
-// Parse the raw script text into an array of slide objects
+/* ===========================
+   Parseo del guion
+   =========================== */
+
 function parseScript(raw) {
   const slides = [];
-  const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+  const lines = raw.split(/\r?\n/);
   let current = null;
-  for (const line of lines) {
+
+  function startNewSlide() {
+    if (current) slides.push(current);
+    current = {
+      title: '',
+      content: [],
+      graph: null,
+      description: '',
+      attachments: [],
+    };
+  }
+
+  for (let rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
     if (/^Diapositiva\s+\d+/i.test(line)) {
-      if (current) slides.push(current);
-      current = { title: '', content: [], graph: null, description: '', attachments: [] };
-    } else if (/^(Título|Titulo):/i.test(line)) {
+      startNewSlide();
+      continue;
+    }
+
+    if (/^(Título|Titulo):/i.test(line)) {
+      if (!current) startNewSlide();
       current.title = line.replace(/^(Título|Titulo):/i, '').trim();
-    } else if (/^(Contenido|Contexto):/i.test(line)) {
-      const parts = line.replace(/^(Contenido|Contexto):/i, '').trim().split(';').map(p => p.trim()).filter(Boolean);
-      current.content.push(...parts);
-    } else if (/^Datos:/i.test(line) || /^Gráfica:/i.test(line) || /^Grafica:/i.test(line)) {
-      const rest = line.replace(/^Gráfica:|^Grafica:|^Datos:/i, '').trim();
-      const sections = rest.split(';').map(s => s.trim());
+      continue;
+    }
+
+    if (/^(Contenido|Contexto):/i.test(line)) {
+      if (!current) startNewSlide();
+      const text = line.replace(/^(Contenido|Contexto):/i, '').trim();
+      if (text) {
+        text
+          .split(';')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .forEach((t) => current.content.push(t));
+      }
+      continue;
+    }
+
+    if (/^Datos:/i.test(line)) {
+      if (!current) startNewSlide();
       const graph = { labels: [], values: [] };
-      sections.forEach(sec => {
-        if (/^labels?/i.test(sec)) {
-          const arr = sec.replace(/^labels?:/i, '').split(',').map(s => s.trim()).filter(Boolean);
-          graph.labels = arr;
-        } else if (/^(valores?|values?)/i.test(sec)) {
-          const arr = sec.replace(/^(valores?|values?):/i, '').split(',').map(s => parseFloat(s.trim())).filter(v => !isNaN(v));
-          graph.values = arr;
+      const rest = line.replace(/^Datos:/i, '').trim();
+      const parts = rest.split(';');
+      parts.forEach((sec) => {
+        const s = sec.trim();
+        if (!s) return;
+        if (/^(labels?|etiquetas?):/i.test(s)) {
+          const labelStr = s.replace(/^(labels?|etiquetas?):/i, '').trim();
+          graph.labels = labelStr
+            .split(',')
+            .map((x) => x.trim())
+            .filter(Boolean);
+        } else if (/^(valores?|values?):/i.test(s)) {
+          const valStr = s.replace(/^(valores?|values?):/i, '').trim();
+          graph.values = valStr
+            .split(',')
+            .map((x) => parseFloat(x.trim()))
+            .filter((v) => !isNaN(v));
         }
       });
       current.graph = graph;
-    } else if (/^Descripción:/i.test(line) || /^Descripcion:/i.test(line)) {
-      current.description = line.replace(/^(Descripción|Descripcion):/i, '').trim();
-    } else if (/^Adjunto:/i.test(line)) {
-      const attachments = line.replace(/^Adjunto:/i, '').split(',').map(s => s.trim()).filter(Boolean);
-      current.attachments.push(...attachments);
-    } else if (current) {
-      const arr = line.split(';').map(s => s.trim()).filter(Boolean);
-      current.content.push(...arr);
+      continue;
     }
+
+    if (/^(Descripción|Descripcion):/i.test(line)) {
+      if (!current) startNewSlide();
+      current.description = line
+        .replace(/^(Descripción|Descripcion):/i, '')
+        .trim();
+      continue;
+    }
+
+    if (/^Adjunto:/i.test(line)) {
+      if (!current) startNewSlide();
+      const rest = line.replace(/^Adjunto:/i, '').trim();
+      if (rest) {
+        current.attachments.push(
+          ...rest.split(',').map((s) => s.trim()).filter(Boolean)
+        );
+      }
+      continue;
+    }
+
+    // Cualquier otra línea se considera contenido adicional (posibles puntos separados por ;)
+    if (!current) startNewSlide();
+    line
+      .split(';')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .forEach((t) => current.content.push(t));
   }
+
   if (current) slides.push(current);
   return slides;
 }
 
-// Generate HTML for a single graph page
-function generateGraphPage(graph, graphIndex) {
-  const { labels, values } = graph;
-  const id = `graph-${graphIndex}`;
-  return `<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>Gráfica ${graphIndex}</title><script src='https://cdn.tailwindcss.com'></script><script src='https://cdn.plot.ly/plotly-latest.min.js'></script><style type='text/tailwindcss'>@layer utilities { .ppt-slide { @apply relative w-[992px] h-[558px] mx-auto p-[30px] box-border overflow-hidden mb-[40px] bg-[#FAFBFC]; } }</style></head><body class='bg-gray-50 py-8'><div class='ppt-slide flex flex-col justify-center'><div id='${id}' class='w-full h-full'></div></div><script>document.addEventListener('DOMContentLoaded', function () { const data = [{ x: ${JSON.stringify(labels)}, y: ${JSON.stringify(values)}, type: 'bar', marker: { color: '#1B365D' } }]; const layout = { title: 'Gráfica ${graphIndex}', margin: { t: 40, r: 20, b: 60, l: 40 }, yaxis: { title: 'Valor' } }; Plotly.newPlot('${id}', data, layout, { responsive: true }); });<\/script></body></html>`;
-}
+/* ===========================
+   Generación de HTML de gráficas independientes
+   =========================== */
 
-// Generate the presentation HTML string. Accepts slides array, array of graph filenames, a theme object and a fonts object
-function generatePresentation(slides, graphFiles, theme, fonts) {
-  let slideHtml = '';
-  let graphCount = 0;
-  const primary = theme.primary;
-  const secondary = theme.secondary;
-  const accent = theme.accent;
-  // Helper to escape single quotes in content
-  const esc = (str) => String(str).replace(/'/g, '&#39;');
-  slides.forEach((slide, index) => {
-    if (index === 0) {
-      // Portada
-      slideHtml += `\n<div class='ppt-slide flex flex-col justify-center' style='background: linear-gradient(135deg, ${primary} 0%, ${secondary} 100%);'>\n  <div class='w-full text-white'>\n    <h1 class='text-5xl md:text-6xl font-bold mb-6' style='font-family: ${fonts.heading};'>${esc(slide.title || 'Título de la presentación')}</h1>\n    <div class='w-24 h-1' style='background-color: ${accent};' class='mb-8'></div>\n    <p class='text-2xl mb-2' style='font-family: ${fonts.body};'>${esc(slide.content[0] || '')}</p>\n    <p class='text-xl opacity-90' style='font-family: ${fonts.body};'>${esc(slide.content[1] || '')}</p>\n    <p class='text-lg opacity-80 mt-4' style='font-family: ${fonts.body};'>${esc(slide.content[2] || '')}</p>\n  </div>\n</div>`;
-    } else {
-      // Non-portada slides
-      slideHtml += `\n<div class='ppt-slide flex flex-col'>\n  <h2 class='text-4xl md:text-5xl font-bold mb-6' style='color: ${primary}; font-family: ${fonts.heading};'>${esc(slide.title)}</h2>`;
-      if (slide.graph) {
-        graphCount++;
-        const graphFile = graphFiles[graphCount - 1];
-        // Graph slide layout: left column description & content, right column preview container
-        slideHtml += `\n  <div class='flex flex-1 gap-6'>\n    <div class='w-2/5 flex flex-col justify-center'>\n      <h3 class='text-2xl font-bold mb-3' style='color: ${primary}; font-family: ${fonts.heading};'>${esc(slide.description || '')}</h3>\n      ${slide.content.map(p => `<p class='text-base leading-relaxed mb-2' style='color: ${theme.text}; font-family: ${fonts.body};'>${esc(p)}</p>`).join('')}\n    </div>\n    <div class='w-3/5 relative'>\n      <div class='preview-container space-y-2' id='preview-container-${graphCount}'></div>\n      <button type='button' class='add-preview absolute top-2 right-2 text-white px-2 py-1 text-xs rounded' style='background-color: ${accent};'>Añadir vista previa</button>\n    </div>\n  </div>`;
-        slideHtml += `\n  <input type='hidden' class='graph-file' value='${esc(graphFile)}' />`;
-      } else {
-        slide.content.forEach(p => {
-          slideHtml += `\n  <p class='text-xl leading-relaxed mb-3' style='color: ${theme.text}; font-family: ${fonts.body};'>${esc(p)}</p>`;
-        });
-      }
-      slideHtml += `\n</div>`;
+function generateGraphHtml(slide, index, theme, fonts) {
+  const labelsJson = JSON.stringify(slide.graph?.labels || []);
+  const valuesJson = JSON.stringify(slide.graph?.values || []);
+  const esc = (str) =>
+    String(str == null ? '' : str).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Gráfica ${index} - ${esc(slide.title)}</title>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: ${fonts.body};
+      background: ${theme.background};
+      color: ${theme.text};
     }
-  });
-  // Build final HTML document with preview functionality and dynamic theme variables
-  const html = `<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>Presentación generada</title><script src='https://cdn.tailwindcss.com'></script><link href='https://fonts.googleapis.com/css2?family=Coda&family=Oranienbaum&family=Sorts+Mill+Goudy&family=Unna&display=swap' rel='stylesheet'><link href='https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.0.0/css/all.min.css' rel='stylesheet'><script src='https://cdn.plot.ly/plotly-latest.min.js'></script><style type='text/tailwindcss'>@layer utilities {.ppt-slide { @apply relative w-[992px] h-[558px] mx-auto p-[30px] box-border overflow-hidden mb-[40px] bg-[#FAFBFC]; }}</style></head><body class='bg-gray-50 py-8'>${slideHtml}<script>(function(){ const slides=document.querySelectorAll('.ppt-slide'); slides.forEach((slide)=>{ const addBtn=slide.querySelector('.add-preview'); if(!addBtn) return; const container=slide.querySelector('.preview-container'); const graphInput=slide.querySelector('.graph-file'); if(!graphInput) return; const graphFile=graphInput.value; function createPreview(){ const wrapper=document.createElement('div'); wrapper.className='relative border rounded overflow-hidden shadow'; wrapper.draggable=true; const iframe=document.createElement('iframe'); iframe.src=graphFile; iframe.className='w-full h-40'; iframe.style.pointerEvents='none'; const removeBtn=document.createElement('button'); removeBtn.textContent='×'; removeBtn.className='absolute top-1 right-1 text-sm bg-red-600 text-white rounded px-1'; removeBtn.onclick=(e)=>{ e.stopPropagation(); wrapper.remove(); }; wrapper.appendChild(iframe); wrapper.appendChild(removeBtn); return wrapper; } // initial preview container.appendChild(createPreview()); // handle drag and drop let dragging=null; container.addEventListener('dragstart',(e)=>{ if(e.target.classList.contains('relative')){ dragging=e.target; e.dataTransfer.effectAllowed='move'; } }); container.addEventListener('dragover',(e)=>{ e.preventDefault(); const after=getDragAfterElement(container,e.clientY); if(!after) container.appendChild(dragging); else container.insertBefore(dragging, after); }); function getDragAfterElement(container,y){ const draggables=[...container.querySelectorAll('.relative:not(.dragging)')]; let closest=null; let closestOffset=-Infinity; draggables.forEach(child=>{ const box=child.getBoundingClientRect(); const offset=y - box.top - box.height / 2; if(offset<0 && offset>closestOffset){ closestOffset=offset; closest=child; } }); return closest; } addBtn.addEventListener('click',()=>{ container.appendChild(createPreview()); }); });})();<\/script></body></html>`;
+    #chart {
+      width: 100vw;
+      height: 100vh;
+    }
+  </style>
+</head>
+<body>
+  <div id="chart"></div>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var labels = ${labelsJson};
+      var values = ${valuesJson};
+      var data = [{
+        x: labels,
+        y: values,
+        type: 'bar',
+        marker: { color: '${theme.accent}' }
+      }];
+      var layout = {
+        title: '${esc(slide.title)}',
+        paper_bgcolor: '${theme.background}',
+        plot_bgcolor: '${theme.background}',
+        font: { family: ${JSON.stringify(fonts.body)}, color: '${theme.text}' },
+        margin: { t: 60, r: 30, b: 50, l: 50 }
+      };
+      Plotly.newPlot('chart', data, layout, {responsive: true});
+    });
+  </script>
+</body>
+</html>`;
   return html;
 }
 
-// Generate README markdown content (simple)
-function generateReadme() {
+/* ===========================
+   Generación de la presentación HTML principal
+   =========================== */
+
+function generatePresentation(slides, graphFiles, theme, fonts) {
+  const esc = (str) =>
+    String(str == null ? '' : str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
+  let slideHtml = '';
+  let graphIdx = 0;
+  const graphConfigs = [];
+
+  slides.forEach((slide, index) => {
+    const isFirst = index === 0;
+    if (isFirst) {
+      // Portada
+      slideHtml += `
+<div class="ppt-slide flex flex-col justify-center items-center text-center" style="background: linear-gradient(135deg, ${theme.primary}, ${theme.secondary}); color: #FFFFFF;">
+  <div class="max-w-3xl px-6">
+    <p class="text-sm mb-2 opacity-80" style="font-family: ${fonts.body};">Presentación generada con ReSlides</p>
+    <h1 class="text-4xl md:text-5xl font-bold mb-4" style="font-family: ${fonts.heading};">${esc(slide.title || 'Título de la presentación')}</h1>
+    ${
+      slide.content[0]
+        ? `<p class="text-lg md:text-xl mb-6" style="font-family: ${fonts.body};">${esc(slide.content[0])}</p>`
+        : ''
+    }
+    <div class="text-sm opacity-80" style="font-family: ${fonts.body};">
+      <span>${new Date().toLocaleDateString('es-MX')}</span>
+    </div>
+  </div>
+</div>`;
+    } else {
+      const hasGraph = slide.graph && slide.graph.labels && slide.graph.labels.length && slide.graph.values && slide.graph.values.length;
+      slideHtml += `
+<div class="ppt-slide flex flex-col md:flex-row" style="background:${theme.background}; color:${theme.text};">
+  <div class="flex-1 p-8 flex flex-col">
+    <h2 class="text-2xl md:text-3xl font-semibold mb-4" style="color:${theme.primary}; font-family:${fonts.heading};">${esc(slide.title || 'Diapositiva ' + (index + 1))}</h2>`;
+
+      if (slide.content && slide.content.length) {
+        slideHtml += `
+    <div class="space-y-2 text-lg leading-relaxed" style="font-family:${fonts.body};">`;
+        slide.content.forEach((p) => {
+          slideHtml += `
+      <p>• ${esc(p)}</p>`;
+        });
+        slideHtml += `
+    </div>`;
+      }
+
+      if (slide.description) {
+        slideHtml += `
+    <p class="mt-4 text-sm opacity-80" style="font-family:${fonts.body};">${esc(slide.description)}</p>`;
+      }
+
+      slideHtml += `
+  </div>`;
+
+      if (hasGraph) {
+        const graphContainerId = `graph-main-${graphIdx + 1}`;
+        const graphFile = graphFiles[graphIdx] || null;
+        graphConfigs.push({
+          id: graphContainerId,
+          labels: slide.graph.labels,
+          values: slide.graph.values,
+          title: slide.title || `Gráfica ${graphIdx + 1}`,
+        });
+        slideHtml += `
+  <div class="w-full md:w-[40%] border-l border-slate-200 bg-white/70 flex flex-col">
+    <div class="p-4 border-b border-slate-200">
+      <p class="text-xs font-semibold uppercase tracking-wide" style="font-family:${fonts.body}; color:${theme.primary};">Gráfica</p>
+      <p class="text-sm" style="font-family:${fonts.body};">${esc(slide.title || '')}</p>
+    </div>
+    <div class="flex-1 p-3">
+      <div id="${graphContainerId}" class="w-full h-48 md:h-full bg-slate-100 rounded-lg"></div>
+    </div>
+    ${
+      graphFile
+        ? `<div class="px-4 py-3 border-t border-slate-200 bg-slate-50">
+      <p class="text-[11px] text-slate-500 mb-1" style="font-family:${fonts.body};">Vista previa en página separada:</p>
+      <a href="${esc(graphFile)}" target="_blank" class="inline-flex items-center gap-1 text-[11px] underline" style="color:${theme.primary};">
+        <span>Abrir gráfica ${graphIdx + 1}</span>
+        <i class="fas fa-external-link-alt text-[10px]"></i>
+      </a>
+    </div>`
+        : ''
+    }
+  </div>`;
+        graphIdx += 1;
+      }
+
+      slideHtml += `
+</div>`;
+    }
+  });
+
+  const graphConfigsJson = JSON.stringify(graphConfigs);
+
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Presentación generada con ReSlides</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Coda&family=Oranienbaum&family=Sorts+Mill+Goudy&family=Unna&display=swap" rel="stylesheet" />
+  <style>
+    body {
+      margin: 0;
+      background: ${theme.background};
+      color: ${theme.text};
+    }
+    .ppt-slide {
+      min-height: 100vh;
+    }
+  </style>
+</head>
+<body>
+  <main class="w-full min-h-screen bg-slate-100">
+    ${slideHtml}
+  </main>
+  <script>
+    (function () {
+      var graphs = ${graphConfigsJson};
+      if (!Array.isArray(graphs)) return;
+      graphs.forEach(function (cfg) {
+        var el = document.getElementById(cfg.id);
+        if (!el) return;
+        var data = [{
+          x: cfg.labels,
+          y: cfg.values,
+          type: 'bar',
+          marker: { color: '${theme.accent}' }
+        }];
+        var layout = {
+          title: cfg.title,
+          paper_bgcolor: '${theme.background}',
+          plot_bgcolor: '#FFFFFF',
+          font: { family: ${JSON.stringify(fonts.body)}, color: '${theme.text}' },
+          margin: { t: 40, r: 20, b: 40, l: 40 }
+        };
+        Plotly.newPlot(el, data, layout, {responsive: true});
+      });
+    })();
+  </script>
+</body>
+</html>`;
+  return html;
+}
+
+/* ===========================
+   README sencillo
+   =========================== */
+
+function generateReadme(slides) {
+  const totalSlides = slides.length;
+  const graphs = slides.filter(
+    (s) => s.graph && s.graph.labels && s.graph.labels.length && s.graph.values && s.graph.values.length
+  ).length;
   return [
-    '# ReSlides',
+    '# ReSlides - Presentación generada',
     '',
-    'Bienvenido a **ReSlides**, una aplicación web para convertir un guion simple en una presentación HTML profesional.',
+    `- Diapositivas: ${totalSlides}`,
+    `- Diapositivas con gráficas: ${graphs}`,
     '',
-    '## Instrucciones de uso',
+    'Archivos incluidos:',
+    '- `presentacion.html`: presentación principal con estilo y gráficas integradas.',
+    '- `graficaN.html`: páginas individuales para cada gráfica (si aplica).',
     '',
-    '1. Escribe tu guion siguiendo el formato de ejemplo en la página principal.',
-    '2. Haz clic en **Enviar**. Se generará un archivo ZIP con:',
-    '   - **presentacion.html**: tu presentación completa.',
-    '   - **grafica*.html**: una página HTML por cada gráfica incluida.',
-    '   - **readme.md**: este archivo.',
-    '3. Descarga el ZIP y abre `presentacion.html` en tu navegador.',
+    'Este paquete fue generado automáticamente a partir de un guion en la app web ReSlides.',
     '',
-    '## Personalización de vistas previas',
-    '',
-    'En las diapositivas con gráficas puedes:',
-    '- Eliminar una vista previa haciendo clic en la × roja.',
-    '- Añadir más vistas previas con el botón “Añadir vista previa”.',
-    '- Reordenar las miniaturas arrastrándolas.',
-    '',
-    '## Despliegue en Vercel',
-    '',
-    'Puedes desplegar este proyecto como sitio estático en Vercel:',
-    '1. Crea una cuenta en Vercel.',
-    '2. Sube la carpeta **reslides_app** a un repositorio y enlázala con Vercel.',
-    '3. Vercel detectará automáticamente que es un proyecto estático y lo desplegará.',
-    '',
-    '---',
-    '',
-    'Hecho con ❤ para ayudarte a crear presentaciones increíbles.'
   ].join('\n');
 }
 
-// Handle form submission
-document.getElementById('chat-form').addEventListener('submit', async function (e) {
-  e.preventDefault();
-  const rawScript = document.getElementById('script-input').value.trim();
-  const history = document.getElementById('history');
-  if (!rawScript) return;
-  // Add user message to history
-  const userMsg = createElement('div', 'bg-gray-100 rounded-lg p-3 border');
-  userMsg.innerHTML = `<p class='font-semibold mb-1'>Tú:</p><pre class='whitespace-pre-wrap text-sm'>${rawScript}</pre>`;
-  history.appendChild(userMsg);
-  // Parse script
-  const slides = parseScript(rawScript);
-  // Determine selected theme and fonts
-  const themeValue = document.getElementById('theme-select') ? document.getElementById('theme-select').value : 'default';
-  const fontValue = document.getElementById('font-select') ? document.getElementById('font-select').value : 'default';
-  // Define themes (colores principales, secundarios, acento y texto)
-  const themes = {
-    default: { primary: '#1B365D', secondary: '#2C5F7F', accent: '#D4AF37', text: '#2D3748' },
-    purpura: { primary: '#4B0082', secondary: '#6A0DAD', accent: '#D69E2E', text: '#2D3748' },
-    verde: { primary: '#2F855A', secondary: '#38A169', accent: '#D69E2E', text: '#2D3748' }
-  };
-  const fontsMap = {
-    default: { heading: 'Sorts Mill Goudy, serif', body: 'Oranienbaum, serif' },
-    moderna: { heading: 'Arial, Helvetica, sans-serif', body: 'Arial, Helvetica, sans-serif' }
-  };
-  const theme = themes[themeValue] || themes.default;
-  const fonts = fontsMap[fontValue] || fontsMap.default;
-  // Generate graph files and collect HTML strings
-  const graphFiles = [];
-  const graphsHtml = [];
-  slides.forEach((slide) => {
-    if (slide.graph) {
-      const index = graphFiles.length + 1;
-      const fileName = `grafica${index}.html`;
-      graphFiles.push(fileName);
-      graphsHtml.push({ name: fileName, content: generateGraphPage(slide.graph, index) });
+/* ===========================
+   Generación de PPTX con PptxGenJS
+   =========================== */
+
+function generatePptx(slides, theme, fonts) {
+  if (typeof PptxGenJS === 'undefined') {
+    alert('No se encontró la librería PptxGenJS. Verifica el script en index.html.');
+    return;
+  }
+  const pres = new PptxGenJS();
+  pres.layout = 'LAYOUT_16x9';
+
+  slides.forEach((slide, index) => {
+    const s = pres.addSlide();
+    const isFirst = index === 0;
+
+    if (isFirst) {
+      s.background = { color: toPptxColor(theme.primary) };
+      s.addText(slide.title || 'Título de la presentación', {
+        x: 0.5,
+        y: 1.2,
+        w: 9,
+        h: 1,
+        fontSize: 36,
+        bold: true,
+        color: 'FFFFFF',
+        align: 'center',
+        fontFace: fonts.heading,
+      });
+      if (slide.content && slide.content[0]) {
+        s.addText(slide.content[0], {
+          x: 1,
+          y: 2.2,
+          w: 8,
+          h: 1.5,
+          fontSize: 20,
+          color: 'FFFFFF',
+          align: 'center',
+          fontFace: fonts.body,
+        });
+      }
+      s.addText(new Date().toLocaleDateString('es-MX'), {
+        x: 0.5,
+        y: 4.0,
+        w: 9,
+        h: 0.5,
+        fontSize: 14,
+        color: 'FFFFFF',
+        align: 'center',
+        fontFace: fonts.body,
+      });
+      return;
+    }
+
+    // Título
+    s.addText(slide.title || 'Diapositiva ' + (index + 1), {
+      x: 0.5,
+      y: 0.5,
+      w: 9,
+      h: 0.6,
+      fontSize: 26,
+      bold: true,
+      color: toPptxColor(theme.primary),
+      fontFace: fonts.heading,
+    });
+
+    const hasGraph =
+      slide.graph &&
+      slide.graph.labels &&
+      slide.graph.labels.length &&
+      slide.graph.values &&
+      slide.graph.values.length;
+
+    // Contenido
+    if (slide.content && slide.content.length) {
+      const text = slide.content.map((t) => '• ' + t).join('\n');
+      s.addText(text, {
+        x: 0.7,
+        y: 1.3,
+        w: hasGraph ? 4.5 : 8.5,
+        h: 3,
+        fontSize: 16,
+        color: toPptxColor(theme.text),
+        fontFace: fonts.body,
+      });
+    }
+
+    if (slide.description) {
+      s.addText(slide.description, {
+        x: 0.7,
+        y: hasGraph ? 4.6 : 4.0,
+        w: hasGraph ? 4.5 : 8.5,
+        h: 1,
+        fontSize: 12,
+        color: toPptxColor(theme.text),
+        fontFace: fonts.body,
+      });
+    }
+
+    if (hasGraph) {
+      const data = [
+        {
+          name: 'Serie',
+          labels: slide.graph.labels,
+          values: slide.graph.values,
+        },
+      ];
+      s.addChart(pres.ChartType.bar, data, {
+        x: 5.4,
+        y: 1.3,
+        w: 4.3,
+        h: 3.3,
+        chartTitle: slide.title || 'Gráfica',
+      });
     }
   });
-  // Generate presentation
-  const presentationHtml = generatePresentation(slides, graphFiles, theme, fonts);
-  // Generate readme
-  const readmeContent = generateReadme();
-  // Create zip
-  const zip = new JSZip();
-  zip.file('presentacion.html', presentationHtml);
-  graphsHtml.forEach(g => zip.file(g.name, g.content));
-  zip.file('readme.md', readmeContent);
-  // Generate a Blob URL for the presentation so it can be viewed directly
-  const presentationUrl = URL.createObjectURL(new Blob([presentationHtml], { type: 'text/html' }));
-  // Generate archive blob but do not initiate download automatically
-  const blob = await zip.generateAsync({ type: 'blob' });
-  const zipName = 'reslides_presentacion.zip';
-  const zipUrl = URL.createObjectURL(blob);
 
-  // Generate PPTX file asynchronously using PptxGenJS if available
-  let pptUrl = null;
-  try {
-    if (typeof PptxGenJS !== 'undefined' || typeof pptxgen !== 'undefined') {
-      // Create a new PPTX presentation
-      const pptx = new (typeof PptxGenJS !== 'undefined' ? PptxGenJS : pptxgen)();
-      // Set 16x9 layout
-      pptx.defineLayout({ name: '16x9', width: 10, height: 5.625 });
-      pptx.layout = '16x9';
-      // Helper to remove leading '#'
-      const strip = (col) => col.replace('#', '');
-      // Iterate slides to build PPT
-      slides.forEach((slide) => {
-        const sld = pptx.addSlide();
-        // Cover slide
-        if (slide === slides[0]) {
-          // Background with primary color
-          sld.background = { color: strip(theme.primary) };
-          // Title text
-          sld.addText(slide.title || 'Título de la presentación', {
-            x: 0.5, y: 1.5, w: 9, h: 1.3,
-            align: pptx.AlignH.center,
-            fontSize: 32,
-            color: 'FFFFFF',
-            bold: true,
-            fontFace: fonts.heading
-          });
-          // Subtitle lines (first three content elements)
-          const lines = [];
-          if (slide.content[0]) lines.push(slide.content[0]);
-          if (slide.content[1]) lines.push(slide.content[1]);
-          if (slide.content[2]) lines.push(slide.content[2]);
-          if (lines.length > 0) {
-            sld.addText(lines.join('\n'), {
-              x: 1, y: 3, w: 8, h: 2,
-              align: pptx.AlignH.center,
-              fontSize: 16,
-              color: strip(theme.accent),
-              fontFace: fonts.body
-            });
-          }
+  pres.writeFile({ fileName: 'ReSlides-presentacion.pptx' });
+}
+
+/* ===========================
+   Manejo de la interfaz
+   =========================== */
+
+let lastState = {
+  slides: null,
+  themeKey: 'default',
+  fontKey: 'default',
+  presentationBlobUrl: null,
+  presentationHtml: null,
+};
+
+function setupReSlides() {
+  const form = document.getElementById('chat-form');
+  const historyEl = document.getElementById('history');
+  const scriptInput = document.getElementById('script-input');
+  const themeSelect = document.getElementById('theme-select');
+  const fontSelect = document.getElementById('font-select');
+  const clearBtn = document.getElementById('clear-btn');
+
+  const previewSection = document.getElementById('preview-section');
+  const previewFrame = document.getElementById('preview-frame');
+  const openNewTabLink = document.getElementById('open-new-tab-link');
+
+  const downloadsSection = document.getElementById('downloads-section');
+  const downloadHtmlLink = document.getElementById('download-html');
+  const downloadPptxBtn = document.getElementById('download-pptx');
+  const downloadZipBtn = document.getElementById('download-zip');
+
+  if (!form || !scriptInput) return;
+
+  clearBtn?.addEventListener('click', function () {
+    historyEl.innerHTML = '';
+    scriptInput.value = '';
+  });
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const rawScript = scriptInput.value.trim();
+    if (!rawScript) {
+      alert('Escribe un guion de presentación antes de generar.');
+      return;
+    }
+
+    // Añadir mensaje del usuario al historial
+    const userMsg = document.createElement('div');
+    userMsg.className = 'bg-slate-50 rounded-xl p-3 border border-slate-200 text-xs';
+    userMsg.innerHTML =
+      "<p class='font-semibold mb-1 text-[#1B365D]'>Tú:</p>" +
+      "<pre class='whitespace-pre-wrap font-mono text-[11px]'>" +
+      rawScript.replace(/</g, '&lt;') +
+      '</pre>';
+    historyEl.appendChild(userMsg);
+
+    // Parsear guion
+    const slides = parseScript(rawScript);
+    if (!slides.length) {
+      const errMsg = document.createElement('div');
+      errMsg.className = 'bg-red-50 text-red-700 rounded-xl p-3 border border-red-200 text-xs mt-2';
+      errMsg.textContent =
+        'No se detectaron diapositivas. Asegúrate de usar el formato "Diapositiva N" y campos como "Título:" y "Contenido:".';
+      historyEl.appendChild(errMsg);
+      return;
+    }
+
+    // Tema y fuentes seleccionados
+    const themeKey = themeSelect?.value || 'default';
+    const fontKey = fontSelect?.value || 'default';
+    const theme = THEMES[themeKey] || THEMES.default;
+    const fonts = FONTS[fontKey] || FONTS.default;
+
+    // Construir archivos de gráficas (para incluir en ZIP y enlazar desde la presentación)
+    const graphFiles = [];
+    let graphIndex = 1;
+    slides.forEach((slide) => {
+      const hasGraph =
+        slide.graph &&
+        slide.graph.labels &&
+        slide.graph.labels.length &&
+        slide.graph.values &&
+        slide.graph.values.length;
+      if (!hasGraph) return;
+      const filename = `grafica${graphIndex}.html`;
+      const html = generateGraphHtml(slide, graphIndex, theme, fonts);
+      graphFiles.push({ filename, html });
+      graphIndex += 1;
+    });
+
+    // Generar presentación HTML principal
+    const presentationHtml = generatePresentation(
+      slides,
+      graphFiles.map((g) => g.filename),
+      theme,
+      fonts
+    );
+
+    // Preparar blob y URL para vista previa y descarga HTML
+    if (lastState.presentationBlobUrl) {
+      URL.revokeObjectURL(lastState.presentationBlobUrl);
+    }
+    const blob = new Blob([presentationHtml], { type: 'text/html' });
+    const blobUrl = URL.createObjectURL(blob);
+
+    lastState = {
+      slides,
+      themeKey,
+      fontKey,
+      presentationBlobUrl: blobUrl,
+      presentationHtml,
+      graphFiles,
+    };
+
+    // Vista previa en iframe
+    if (previewFrame) {
+      previewFrame.src = blobUrl;
+      previewSection?.classList.remove('hidden');
+    }
+    if (openNewTabLink) {
+      openNewTabLink.href = blobUrl;
+      openNewTabLink.classList.remove('hidden');
+    }
+
+    // Configurar enlace de descarga HTML
+    if (downloadHtmlLink) {
+      downloadHtmlLink.href = blobUrl;
+      downloadHtmlLink.setAttribute('download', 'presentacion.html');
+    }
+
+    // Mostrar sección de descargas
+    downloadsSection?.classList.remove('hidden');
+
+    // Mensaje del sistema en historial
+    const botMsg = document.createElement('div');
+    botMsg.className = 'bg-white rounded-xl p-3 border border-slate-200 text-xs';
+    botMsg.innerHTML =
+      "<p class='font-semibold mb-1 text-[#1B365D]'>ReSlides:</p>" +
+      "<p class='text-[11px] text-slate-700'>Presentación generada con éxito. Usa la vista previa de la derecha o descarga los archivos en los formatos disponibles.</p>";
+    historyEl.appendChild(botMsg);
+
+    // Desplazar hacia abajo el historial
+    historyEl.scrollTop = historyEl.scrollHeight;
+  });
+
+  // Descargar PPTX usando el último estado
+  if (downloadPptxBtn) {
+    downloadPptxBtn.addEventListener('click', function () {
+      if (!lastState.slides || !lastState.slides.length) {
+        alert('Primero genera una presentación antes de descargar el PPTX.');
+        return;
+      }
+      const theme = THEMES[lastState.themeKey] || THEMES.default;
+      const fonts = FONTS[lastState.fontKey] || FONTS.default;
+      generatePptx(lastState.slides, theme, fonts);
+    });
+  }
+
+  // Descargar ZIP con presentacion.html + gráficas + README
+  if (downloadZipBtn) {
+    downloadZipBtn.addEventListener('click', function () {
+      if (!lastState.slides || !lastState.slides.length) {
+        alert('Primero genera una presentación antes de descargar el ZIP.');
+        return;
+      }
+      if (typeof JSZip === 'undefined') {
+        alert('No se encontró JSZip. Verifica el script en index.html.');
+        return;
+      }
+      const theme = THEMES[lastState.themeKey] || THEMES.default;
+      const fonts = FONTS[lastState.fontKey] || FONTS.default;
+
+      const zip = new JSZip();
+      // Añadir presentación principal
+      zip.file('presentacion.html', lastState.presentationHtml || '');
+      // Añadir gráficas
+      (lastState.graphFiles || []).forEach((g) => {
+        zip.file(g.filename, g.html);
+      });
+      // README
+      const readme = generateReadme(lastState.slides);
+      zip.file('README.md', readme);
+
+      zip.generateAsync({ type: 'blob' }).then(function (zipBlob) {
+        if (typeof saveAs === 'function') {
+          saveAs(zipBlob, 'reslides_paquete.zip');
         } else {
-          // Normal slides
-          sld.background = { color: 'FAFBFC' };
-          // Title
-          sld.addText(slide.title || '', {
-            x: 0.5, y: 0.5, w: 9, h: 0.8,
-            fontSize: 24,
-            bold: true,
-            color: strip(theme.primary),
-            fontFace: fonts.heading
-          });
-          // If slide has graph
-          if (slide.graph) {
-            // Description and content on left side
-            const yStart = 1.5;
-            let textRuns = [];
-            if (slide.description) {
-              textRuns.push({ text: slide.description + '\n', options: { fontSize: 16, bold: true, color: strip(theme.primary), fontFace: fonts.heading } });
-            }
-            slide.content.forEach((p) => {
-              textRuns.push({ text: '\u2022 ' + p + '\n', options: { fontSize: 14, color: strip(theme.text), fontFace: fonts.body } });
-            });
-            sld.addText(textRuns, { x: 0.5, y: yStart, w: 5.0, h: 3.0, margin: 0.1, wrap: true });
-            // Chart on right side
-            const dataChart = [ { name: slide.title || '', labels: slide.graph.labels, values: slide.graph.values } ];
-            sld.addChart(pptx.ChartType.bar, dataChart, {
-              x: 5.5, y: 1.5, w: 4.0, h: 3.0,
-              barDir: 'col',
-              chartColors: [ strip(theme.primary) ],
-              catAxisLabelFontFace: fonts.body,
-              catAxisLabelColor: strip(theme.primary),
-              valAxisLabelColor: strip(theme.primary),
-              valAxisLineColor: strip(theme.primary),
-              catAxisLineColor: strip(theme.primary),
-              valAxisMajorGridLine: { style: 'solid', color: 'DDDDDD' },
-              showLegend: false
-            });
-          } else {
-            // Only content bullet points
-            const textRuns = [];
-            slide.content.forEach((p) => {
-              textRuns.push({ text: '\u2022 ' + p + '\n', options: { fontSize: 16, color: strip(theme.text), fontFace: fonts.body } });
-            });
-            sld.addText(textRuns, { x: 0.5, y: 1.5, w: 9.0, h: 4.0, wrap: true });
-          }
+          const url = URL.createObjectURL(zipBlob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'reslides_paquete.zip';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
         }
       });
-      const pptBlob = await pptx.write('blob');
-      pptUrl = URL.createObjectURL(pptBlob);
-    }
-  } catch (err) {
-    console.error('Error generating PPT:', err);
+    });
   }
-  // Add system response to history with view and download options
-  const botMsg = createElement('div', 'bg-white rounded-lg p-3 border');
-  botMsg.innerHTML =
-    `<p class='font-semibold mb-1' style='color: ${theme.primary};'>ReSlides:</p>` +
-    `<p class='text-sm'>Presentación generada con éxito. Puedes verla directamente, previsualizarla o descargarla para guardarla en tu equipo.</p>` +
-    `<p class='mt-2'><a href='${presentationUrl}' target='_blank' class='text-blue-600 underline text-sm'>Abrir en nueva pestaña</a></p>` +
-    `<p class='mt-1'><a href='${zipUrl}' download='${zipName}' class='text-blue-600 underline text-sm'>Descargar paquete ZIP</a></p>` +
-    (pptUrl ? `<p class='mt-1'><a href='${pptUrl}' download='reslides_presentacion.pptx' class='text-blue-600 underline text-sm'>Descargar PPTX</a></p>` : '') +
-    `<div class='mt-3'>\n      <p class='text-xs mb-1'>Vista previa:</p>\n      <iframe src='${presentationUrl}' class='w-full h-64 border rounded-md'></iframe>\n    </div>`;
-  history.appendChild(botMsg);
-  // Show files section and list file names
-  const filesSection = document.getElementById('files');
-  const list = document.getElementById('files-list');
-  list.innerHTML = '';
-  list.appendChild(createElement('li', '', 'presentacion.html'));
-  graphsHtml.forEach(g => list.appendChild(createElement('li', '', g.name)));
-  list.appendChild(createElement('li', '', 'readme.md'));
-  filesSection.classList.remove('hidden');
-  // Clear form
-  document.getElementById('script-input').value = '';
-});
+}
+
+// Inicializar cuando el DOM esté listo
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', setupReSlides);
+} else {
+  setupReSlides();
+}
